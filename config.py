@@ -16,8 +16,8 @@ api_key_wb_5 = env.str('token_5')
 api_key_wb_6 = env.str('token_6')
 api_key_wb_7 = env.str('token_7')
 tokens_wb = [api_key_wb_1, api_key_wb_2, api_key_wb_3, api_key_wb_4, api_key_wb_5, api_key_wb_6, api_key_wb_7]
-api_key_ozon = env.str('api_ozon_4')
-client_id = env.str('client_id_4')
+api_key_ozon = env.str('api_ozon_7')
+client_id = env.str('client_id_7')
 
 dict_lk = {
     1: 'FAVEGO',
