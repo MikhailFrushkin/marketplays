@@ -1,12 +1,14 @@
 import asyncio
 import json
+import random
 from pprint import pprint
 
 import aiofiles
 import aiohttp
 from loguru import logger
 
-from config import headers_ozon
+from Api_ozon.db import Category, Characteristic, Parameter
+from config import headers_ozon, categories_dict
 
 
 async def get_limit():
@@ -87,14 +89,14 @@ async def get_card_info(offer_id: str, product_id: int):
                 await file.write(f'{json.dumps(data_res, ensure_ascii=False, indent=4)}')
 
 
-async def create_card(art, data):
+async def create_card(data):
     """Создание карточки"""
     url = 'https://api-seller.ozon.ru/v3/product/import'
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
         async with session.post(url, headers=headers_ozon, json=data) as response:
             print("Status:", response.status)
             data_res = await response.json()
-            async with aiofiles.open(f'../files_ozon/{art}.json', 'w', encoding='utf-8') as file:
+            async with aiofiles.open(f'../files_ozon/push_cards.json', 'w', encoding='utf-8') as file:
                 await file.write(f'{json.dumps(data_res, ensure_ascii=False, indent=4)}')
 
 
@@ -109,81 +111,229 @@ async def info_task_id(task_id):
                 await file.write(f'{json.dumps(data_res, ensure_ascii=False, indent=4)}')
 
 
+def get_attributes(category, num, brand, name, descriptions, params):
+    atrs = []
+
+    required_atrs = Characteristic.select().where(Characteristic.category == category,
+                                                  Characteristic.is_required == True)
+    atrs.append({
+        "id": 4191,
+        "values": [
+            {
+                "value": descriptions
+            }
+        ]
+    })
+    for atr in required_atrs:
+        if atr.id_ozon_character == 8229:
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": [
+                    {
+                        "dictionary_value_id": category.type_id
+                    }
+                ]
+            })
+        elif atr.id_ozon_character == 9048:
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": [
+                    {
+                        "value": "Выгрузка с срм"
+                    }
+                ]
+            })
+
+        elif atr.id_ozon_character == 85:
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": [
+                    {
+                        "value": brand
+                    }
+                ]
+            })
+
+        elif atr.id_ozon_character == 4180:
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": [
+                    {
+                        "value": name
+                    }
+                ]
+            })
+        elif atr.id_ozon_character == 6532:
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": [
+                    {
+                        "value": str(num)
+                    }
+                ]
+            })
+        elif atr.id_ozon_character == 6949:
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": [
+                    {
+                        "value": str(num)
+                    }
+                ]
+            })
+
+        elif atr.id_ozon_character == 11029:
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": [
+                    {
+                        "value": str(atr.default)
+                    }
+                ]
+            })
+        elif atr.id_ozon_character == 9163:
+            items = atr.default.split(";")
+            temp_atr = []
+            for item in items:
+                temp_atr.append({"value": item.strip()})
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": temp_atr
+            })
+        else:
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": [
+                    {
+                        "value": atr.default
+                    }
+                ]
+            })
+    not_required_atrs = Characteristic.select().where(Characteristic.category == category,
+                                                      Characteristic.is_required == False, Characteristic.default != '')
+    for atr in not_required_atrs:
+        if ';' in atr.default:
+            items = atr.default.split(";")
+            temp_atr = []
+            for item in items:
+                temp_atr.append({"value": item.strip()})
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": temp_atr
+            })
+        else:
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": [
+                    {
+                        "value": str(atr.default) if atr.type == "String" else atr.default
+                    }
+                ]
+            })
+    not_required_atrs_and_not_default = Characteristic.select().where(Characteristic.category == category,
+                                                                      Characteristic.is_required == False,
+                                                                      Characteristic.default == '')
+    for atr in not_required_atrs_and_not_default:
+        if "Количество" in atr.name:
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": [
+                    {
+                        "value": str(num)
+                    }
+                ]
+            })
+        elif "Вес с упаковкой, г" in atr.name:
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": [
+                    {
+                        "value": str(params.weight)
+                    }
+                ]
+            })
+        elif "Вес товара, г" in atr.name:
+            atrs.append({
+                "id": atr.id_ozon_character,
+                "values": [
+                    {
+                        "value": str(params.weight_product)
+                    }
+                ]
+            })
+    return atrs
+
+
 if __name__ == '__main__':
     # asyncio.run(get_cards(archived=True))
     #
     # offer_id = 'SOVIET_RUGS-GA-6-37'
     # product_id = 1140830152
-    # asyncio.run(get_card_info(offer_id, product_id))
+    # asyncio.run(get_card_info(offer_id, product_id)),
 
-    description_category_id = 17027906
-    art = "Test-posters"
-    data = {
-        "items": [
+    category_name = "Значки"
+    brand = 'Anikoya'
+    # cat_list = [key for key, value in categories_dict.items() if 'набор' not in key]
+    cat_list = ["Попсокеты"]
+    num = 1
+
+    data = {"items": []}
+    for category_name in cat_list:
+        if (category_name == "Значки" or category_name == "Кружки" or category_name == "Кружки-сердечко") and num > 1:
+            category_name += "_набор"
+        category = Category.get(Category.name == category_name)
+        description_category_id = categories_dict[category_name].get('description_category_id')
+
+        # Выгружать с вб
+        art = f"Test-{category_name}"
+        name = f"тестовый арт. {art}"
+        barcode = str(random.randint(10 ** 11, 10 ** 12 - 1))
+        descriptions = 'Описание Артикула'
+
+        # Выгружать с яндекса
+        images = ["https://disk.yandex.ru/i/ci0YHDl_LknoLA"]
+        primary_image = "https://disk.yandex.ru/i/Hli7HgqOE094jA"
+        try:
+            parameters = Parameter.get(category=category, num=num)
+        except:
+            logger.error(f"{category_name} {num}")
+            continue
+        depth = parameters.depth
+        height = parameters.height
+        weight = parameters.weight
+        width = parameters.width
+        price = str(parameters.price)
+        old_price = str(parameters.old_price)
+
+        attributes = get_attributes(category, num, brand, name, descriptions, parameters)
+
+        data['items'].append(
             {
-                "attributes": [
-                    {
-                        "complex_id": 0,
-                        "id": 85,
-                        "values": [
-                            {
-                                "dictionary_value_id": 971361449,
-                                "value": "Стойка для акустической системы"
-                            }
-                        ]
-                    },
-                    {
-                        "complex_id": 0,
-                        "id": 8229,
-                        "values": [
-                            {
-                                "dictionary_value_id": 91987,
-                                "value": "Постер"
-                            }
-                        ]
-                    },
-                    {
-                        "complex_id": 0,
-                        "id": 9048,
-                        "values": [
-                            {
-                                "value": "TESTALKFLSADF DJFKS DFJOEFJ E=фдщальшйош"
-                            }
-                        ]
-                    },
-                    {
-                        "complex_id": 0,
-                        "id": 11029,
-                        "values": [
-                            {
-                                "value": "22"
-                            }
-                        ]
-                    }
-                ],
-                "barcode": "6312772873170",
+                "attributes": attributes,
+                "barcode": barcode,
                 "description_category_id": description_category_id,
                 "color_image": "",
                 "complex_attributes": [],
                 "currency_code": "RUB",
-                "depth": 10,
+                "depth": depth,
                 "dimension_unit": "mm",
-                "height": 250,
-                "images": ["https://disk.yandex.ru/i/ci0YHDl_LknoLA"],
+                "height": height,
+                "images": images,
                 "images360": [],
-                "name": "тестовый арт. ВЫГРУЗКА!!!ВЫГРУЗКА!!!ARRRR",
-                "offer_id": str(art),
-                "old_price": "1100",
+                "name": name,
+                "offer_id": art,
+                "old_price": old_price,
                 "pdf_list": [],
-                "price": "1000",
-                "primary_image": "https://disk.yandex.ru/i/Hli7HgqOE094jA",
-                "vat": "0.1",
-                "weight": 100,
+                "price": price,
+                "primary_image": primary_image,
+                "vat": "0",
+                "weight": weight,
                 "weight_unit": "g",
-                "width": 150
+                "width": width
             }
-        ]
-    }
-    # asyncio.run(create_card(art, data))
-    task_id = 1281849055
-    asyncio.run(info_task_id(task_id))
+        )
+    pprint(data)
+    # print(len(data["items"]))
+    asyncio.run(create_card(data))
+    # task_id = 1284298905
+    # asyncio.run(info_task_id(task_id))
